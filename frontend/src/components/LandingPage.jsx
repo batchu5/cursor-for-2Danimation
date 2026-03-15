@@ -67,8 +67,6 @@ export default function LandingPage(){
                     <source src={"https://res.cloudinary.com/dxmkpoe7j/video/upload/v1771055120/cukigfan4yxgpcwmew1e"} type="video/mp4" />
                     Your browser does not support the video tag.
                 </video>
-                
-            
             </div>
             
         </div>
