@@ -64,7 +64,7 @@ export default function LandingPage(){
                     <div className="text-neutral-300 ">Prompt: Draw a graph of y = sin(x)</div>
                 </h1>
                  <video className='w-[1200px] mt-8' controls autoPlay loop muted>
-                    <source src={"https://res.cloudinary.com/dxmkpoe7j/video/upload/v1771055120/cukigfan4yxgpcwmew1e"} type="video/mp4" />
+                    <source src={"https://res.cloudinary.com/dxmkpoe7j/video/upload/v1773555847/SinGraph_c3op1a"} type="video/mp4" />
                     Your browser does not support the video tag.
                 </video>
             </div>
