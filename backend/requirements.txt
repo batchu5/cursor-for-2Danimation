@@ -1,0 +1,32 @@
+# Core
+manim
+numpy
+scipy
+
+# Backend
+fastapi
+uvicorn[standard]
+
+# AI Integration
+openai
+OpenAI  # if you're using openai.OpenAI (separate SDK from openai.ChatCompletion)
+requests
+python-dotenv
+
+# Security & Auth
+python-jose[cryptography]
+itsdangerous
+authlib  # used for OAuth
+
+# Database
+pymongo
+
+# Cloudinary Upload
+cloudinary
+
+# Utility & Typing
+typing 
+python-multipart  # if you're dealing with form-data uploads (FastAPI requires it for file uploads)
+
+# Sessions
+starlette

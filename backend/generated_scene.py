@@ -1,48 +1,33 @@
 from manim import *
 
-class MachineLearningExplanation(Scene):
+class DigestiveSystem(Scene):
     def construct(self):
-        title = Text("Machine Learning", font_size=48).to_edge(UP)
-        self.play(Write(title))
+        stomach = Circle(radius=1.5, color=BLUE, fill_opacity=0.5)
+        esoph = Rectangle(height=0.5, width=1, color=RED, fill_opacity=0.5)
+        esoph.next_to(stomach, UP)
+        intest = VMobject()
+        intest.set_points_as_corners([
+            [0, 0, 0],
+            [1, -1, 0],
+            [2, 1, 0],
+            [3, -1, 0],
+            [4, 0, 0]
+        ])
+        intest.stretch(2, 0)
+        intest.stretch(0.5, 1)
+        intest.set_color(GREEN)
+        intest.next_to(stomach, DOWN + RIGHT, buff=0)
+        
+        self.play(Create(esoph), Create(stomach), Create(intest))
         self.wait(1)
-
-        data_points = VGroup(*[
-            Dot(point, color=BLUE) for point in [
-                np.array([-3, 1, 0]),
-                np.array([-2, 2, 0]),
-                np.array([-1, 0.5, 0]),
-                np.array([1, -1, 0]),
-                np.array([2, -0.5, 0]),
-                np.array([3, -2, 0])
-            ]
-        ])
-
-        model = Square(color=RED).scale(1.5).shift(RIGHT*3)
-        model_label = Text("Model", color=RED).next_to(model, DOWN)
-
-        self.play(Create(data_points))
-        self.wait(0.5)
-        self.play(data_points.animate.shift(LEFT*3))
-        self.wait()
-
-        self.play(Create(model), Write(model_label))
-        self.wait()
-
-        arrows = VGroup(*[
-            Arrow(data_point.get_center(), model.get_left(), buff=0.1)
-            for data_point in data_points
-        ])
-
-        self.play(LaggedStart(*[Create(arrow) for arrow in arrows], lag_ratio=0.2))
-        self.wait()
-
-        output = Text("Predictions", color=GREEN).next_to(model, RIGHT*2)
-        self.play(Transform(arrows, Arrow(model.get_right(), output.get_left(), color=GREEN).scale(2)))
-        self.play(Write(output))
-        self.wait(2)
-
-        learning_process = Text("Learns patterns from data", color=YELLOW).next_to(title, DOWN)
-        self.play(Write(learning_process))
-        self.wait(2)
-
-        self.play(*[FadeOut(mob) for mob in self.mobjects])
+        
+        dot = Dot(color=YELLOW)
+        self.play(FadeIn(dot))
+        
+        self.play(dot.animate.move_to(esoph.get_bottom()))
+        self.play(dot.animate.move_to(stomach.get_top()))
+        self.play(dot.animate.move_to(intest.get_top()))
+        self.play(dot.animate.move_to(intest.get_end()))
+        self.wait(1)
+        
+        self.play(FadeOut(dot), FadeOut(esoph), FadeOut(stomach), FadeOut(intest))
