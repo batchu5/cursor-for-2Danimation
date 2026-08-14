@@ -1,6 +1,7 @@
 import { useState } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
+import { BACKEND_URL } from "../config";
 
 export default function Signup() {
     const navigate = useNavigate();
@@ -9,7 +10,7 @@ export default function Signup() {
 
     const handleOnClick = async () => {
         try {
-            const response = await axios.post("https://cursor-for-2danimation.onrender.com/signin", 
+            const response = await axios.post(`${BACKEND_URL}/signin`, 
                 { username, password, },
                 { withCredentials: true },
                 {

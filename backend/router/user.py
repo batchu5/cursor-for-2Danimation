@@ -1,4 +1,6 @@
 
+from auth import create_refresh_token
+from auth import verify_refresh_token
 from fastapi import APIRouter,HTTPException,Request # type: ignore
 from pydantic import BaseModel# type: ignore
 from typing import List, Optional
@@ -81,10 +83,25 @@ async def google_callback(request: Request):
     else:
         user_id = existing_user["_id"]
     access_token = create_access_token({"user_id": str(user_id)})
+    refresh_token = create_refresh_token({"user_id": str(user_id)})
+
+    # Store refresh token in DB for revocation support
+    user_collection.update_one(
+        {"_id": ObjectId(str(user_id))},
+        {"$set": {"refresh_token": refresh_token}}
+    )
+
     response = RedirectResponse(url="https://cursor-for-2-danimation.vercel.app/dashboard")
     response.set_cookie(
         key="token",
         value=access_token,
+        httponly=True,
+        secure=True,
+        samesite="none"
+    )
+    response.set_cookie(
+        key="refresh_token",
+        value=refresh_token,
         httponly=True,
         secure=True,
         samesite="none"
@@ -125,6 +142,13 @@ def signin(login: LoginRequest, response: Response):
         raise HTTPException(status_code=401, detail="Invalid username or password")
 
     token = create_access_token({"user_id": str(user["_id"])})
+    refresh_token = create_refresh_token({"user_id": str(user["_id"])})
+
+    # Store refresh token in DB for revocation support
+    user_collection.update_one(
+        {"_id": user["_id"]},
+        {"$set": {"refresh_token": refresh_token}}
+    )
 
     response.set_cookie(
         key="token",
@@ -134,7 +158,38 @@ def signin(login: LoginRequest, response: Response):
         samesite="none",
     )
 
+    response.set_cookie(
+        key="refresh_token",
+        value=refresh_token,
+        httponly=True,
+        secure=True,
+        samesite="none"
+    )
+
     return {"message": "Login successful", "user_id": str(user["_id"])}
+
+
+
+@userRouter.post("/refresh")
+def refresh(request: Request, response: Response):
+    refresh_token = request.cookies.get("refresh_token")
+    if not refresh_token:
+        raise HTTPException(status_code=401, detail="No refresh token")
+
+    user_id = verify_refresh_token(refresh_token)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid refresh token")
+
+    # Verify the token matches what's in the DB (prevents using revoked tokens)
+    user = user_collection.find_one({"_id": ObjectId(user_id)})
+    if not user or user.get("refresh_token") != refresh_token:
+        raise HTTPException(status_code=401, detail="Token revoked")
+
+    new_access_token = create_access_token({"user_id": user_id})
+    response.set_cookie(key="token", value=new_access_token,
+                        httponly=True, secure=True, samesite="none", max_age=900)
+    return {"message": "Token refreshed"}
+
 
 @userRouter.post("/addVideo")
 def add_video(req: Video, user_id: str = Depends(get_current_user_id)):
