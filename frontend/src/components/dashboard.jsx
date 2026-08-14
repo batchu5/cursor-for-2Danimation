@@ -1,4 +1,4 @@
-import axios from "axios";
+import api from "../axiosInstance";
 import { useEffect, useState } from "react";
 import VideoPlayer from "../videoplayer";
 import Sidebar from "./sidebar";
@@ -34,14 +34,8 @@ export default function DashBoard() {
     const fetchVideos = async () => {
       try {
         
-        const response = await axios.get("https://cursor-for-2danimation.onrender.com/grouped_by_conversation", {
-          withCredentials: true, 
-          headers: {
-            "Content-Type": "application/json"
-          }
-
-        });
-        const user = await axios.get("https://cursor-for-2danimation.onrender.com/userInfo",{withCredentials : true});
+        const response = await api.get(`/grouped_by_conversation`);
+        const user = await api.get(`/userInfo`);
         console.log(user.data);
         setUserName(user.data.name);
         if(user.data.picture === "hello guru kosame ra jeeveihtam"){
@@ -80,10 +74,9 @@ export default function DashBoard() {
           break;
         }
       }
-      const generateRes = await axios.post(
-        "https://cursor-for-2danimation.onrender.com/generate_video",
-        { prompt, conversationId: selectedconversationId },
-        { withCredentials: true }
+      const generateRes = await api.post(
+        `/generate_video`,
+        { prompt, conversationId: selectedconversationId }
       );
 
       const resData = generateRes.data;

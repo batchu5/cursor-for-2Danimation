@@ -30,3 +30,4 @@ python-multipart  # if you're dealing with form-data uploads (FastAPI requires i
 
 # Sessions
 starlette
+httpx

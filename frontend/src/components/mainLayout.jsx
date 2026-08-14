@@ -1,4 +1,4 @@
-import axios from "axios";
+import api from "../axiosInstance";
 import { useRecoilValue, useSetRecoilState } from "recoil";
 import { convoId } from "../store/conversationIdAtom";
 import { useEffect, useState } from "react";
@@ -32,10 +32,9 @@ export default function Chat(){
     const handleOnClick = async () => {
         try {
             setLoading(true)
-            const generateRes = await axios.post(
-                "https://cursor-for-2danimation.onrender.com/generate_video",
-                { prompt, conversationId},
-                { withCredentials: true }
+            const generateRes = await api.post(
+                `/generate_video`,
+                { prompt, conversationId}
             );
             setLoading(false)
             const newUrl = generateRes.data.data.url;
