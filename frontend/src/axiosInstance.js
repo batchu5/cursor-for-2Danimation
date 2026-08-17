@@ -1,31 +1,40 @@
 import axios from "axios";
-
 import { BACKEND_URL } from "./config";
 
 const api = axios.create({
-    baseURL : BACKEND_URL,
-    withCredentials : true
-})
+    baseURL: BACKEND_URL,
+});
 
-api.interceptors.response.use((response) => response, async(error) => {
-    const originalRequest = error.config;
+// Token will be set by the Auth0 hook in components
+let _getAccessToken = null;
 
-    if(error.response?.status == 401 && !originalRequest._retry){
+export function setTokenGetter(getter) {
+    _getAccessToken = getter;
+}
 
-        originalRequest._retry = true;
-        try{
-            await axios.post(`${BACKEND_URL}/refresh`, {}, {
-                withCredentials: true
-            })
-
-            return api(originalRequest);
-        }catch{
-            window.location.href = "/signin";
+api.interceptors.request.use(async (config) => {
+    if (_getAccessToken) {
+        try {
+            const token = await _getAccessToken();
+            config.headers.Authorization = `Bearer ${token}`;
+        } catch (err) {
+            console.error("Failed to get access token:", err);
+            // Redirect to login if token retrieval fails
+            window.location.href = "/";
         }
     }
+    return config;
+});
 
-    return Promise.reject(error);
-})
-
+api.interceptors.response.use(
+    (response) => response,
+    async (error) => {
+        if (error.response?.status === 401) {
+            // Token expired or invalid — redirect to landing page
+            window.location.href = "/";
+        }
+        return Promise.reject(error);
+    }
+);
 
 export default api;

@@ -12,7 +12,6 @@ from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel,Field
 from middleware import get_current_user_id
 import subprocess
-from bson import ObjectId
 from fastapi import Depends
 from configurations import user_collection
 import sys
@@ -20,7 +19,6 @@ import glob
 from datetime import datetime
 
 import shutil
-from starlette.middleware.sessions import SessionMiddleware
 manim_path = shutil.which("manim")
 
 class PromptRequest(BaseModel):
@@ -39,7 +37,6 @@ origins = [
      "https://cursor-for-2-danimation.vercel.app",
      "http://localhost:5173"
 ]
-app.add_middleware(SessionMiddleware, secret_key=os.getenv("SESSION_SECRET_KEY", "super-secret-key"))
 app.include_router(userRouter)
 app.add_middleware(
     CORSMiddleware,
@@ -107,7 +104,7 @@ async def generate_video(promptRequest: PromptRequest, user_id: str = Depends(ge
             print("=== Render Log ===")
             print(log_contents)
 
-        print("fuck it completed the generate_scene.py")
+        print("Completed the generate_scene.py")
 
         
         output_dir = os.path.join(BASE_DIR, "media", "videos", "generated_scene", "480p15")
@@ -134,7 +131,7 @@ async def generate_video(promptRequest: PromptRequest, user_id: str = Depends(ge
 
         video_data = {"prompt": promptRequest.prompt, "url": url, "conversationId": promptRequest.conversationId,"timestamp": promptRequest.timestamp}
         update_result = user_collection.update_one(
-            {"_id": ObjectId(user_id)},
+            {"auth0_id": user_id},
             {"$push": {"videos": video_data}}
         )
 
