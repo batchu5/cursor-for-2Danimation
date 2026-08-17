@@ -9,14 +9,11 @@ uvicorn[standard]
 
 # AI Integration
 openai
-OpenAI  # if you're using openai.OpenAI (separate SDK from openai.ChatCompletion)
 requests
 python-dotenv
 
-# Security & Auth
+# Security & Auth (Auth0 JWT verification)
 python-jose[cryptography]
-itsdangerous
-authlib  # used for OAuth
 
 # Database
 pymongo
@@ -26,7 +23,7 @@ cloudinary
 
 # Utility & Typing
 typing 
-python-multipart  # if you're dealing with form-data uploads (FastAPI requires it for file uploads)
+python-multipart
 
 # Sessions
 starlette

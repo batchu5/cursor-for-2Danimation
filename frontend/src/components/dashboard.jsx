@@ -1,4 +1,4 @@
-import api from "../axiosInstance";
+import api, { setTokenGetter } from "../axiosInstance";
 import { useEffect, useState } from "react";
 import VideoPlayer from "../videoplayer";
 import Sidebar from "./sidebar";
@@ -7,12 +7,11 @@ import { useRecoilValue, useSetRecoilState } from "recoil";
 import { newChat } from "../store/newchatAtom";
 import { videosAtom } from "../store/videosAtom";
 import { conversationClick } from "../store/conversationClick";
-import { userNameAtom } from "../store/usernameAtom";
-import { pictureAtom } from "../store/pictureAtom";
 import { errorAtom } from "../store/errorAtom";
+import { useAuth0 } from "@auth0/auth0-react";
 
 export default function DashBoard() {
-  // const [videos, setVideos] = useState([]); 
+  const { user, getAccessTokenSilently } = useAuth0();
   const videos = useRecoilValue(videosAtom);
   const setVideos = useSetRecoilState(videosAtom)
   const isNewChat = useRecoilValue(newChat)
@@ -24,30 +23,16 @@ export default function DashBoard() {
   const error = useRecoilValue(errorAtom);
   const setError = useSetRecoilState(errorAtom); 
 
-  const userName = useRecoilValue(userNameAtom);
-  const picture = useRecoilValue(pictureAtom);
-  const setUserName = useSetRecoilState(userNameAtom);
-
-  const setPicture = useSetRecoilState(pictureAtom);
+  // Set the token getter for axios interceptor
+  useEffect(() => {
+    setTokenGetter(getAccessTokenSilently);
+  }, [getAccessTokenSilently]);
 
   useEffect(() => {
     const fetchVideos = async () => {
       try {
-        
         const response = await api.get(`/grouped_by_conversation`);
-        const user = await api.get(`/userInfo`);
-        console.log(user.data);
-        setUserName(user.data.name);
-        if(user.data.picture === "hello guru kosame ra jeeveihtam"){
-
-          setPicture("https://t4.ftcdn.net/jpg/02/29/75/83/360_F_229758328_7x8jwCwjtBMmC6rgFzLFhZoEpLobB6L8.jpg");
-        }
-        else{
-          setPicture(user.data.picture);
-        }
-
         setVideos(response.data);
-        
       } catch (err) {
         console.error("Failed to load videos", err);
       }
@@ -58,7 +43,6 @@ export default function DashBoard() {
   useEffect(() => {
     console.log(videos)
     console.log(currentVideo)
-  //   console.log(convoClick);
   }, [videos])
 
   
@@ -83,7 +67,6 @@ export default function DashBoard() {
 
       if (resData.error) {
         console.error("Backend Error:", resData.error);
-        // alert(`Failed to generate video: ${resData.error}`);
         setError(true);
       } else if (resData.data?.url) {
         const newUrl = resData.data.url;
@@ -91,13 +74,11 @@ export default function DashBoard() {
         
       } else {
         console.warn("Unexpected backend response:", resData);
-        // alert("Something went wrong. Please try again later.");
         setError(true);
       }
       setPrompt("");
     } catch (err) {
       console.error("Unexpected Error:", err);
-      // alert("A network or server error occurred.");
       setError(true);
     } finally {
       setLoading(false);
@@ -114,7 +95,6 @@ export default function DashBoard() {
   return (
     <div className="bg-neutral-800 w-screen h-screen text-white flex ">
         <Sidebar />
-        {/* {console.log(newChat)} */}
         {isNewChat && <Chat />}
 
         {!isNewChat && (
@@ -166,7 +146,7 @@ export default function DashBoard() {
                       <div className="text-end flex justify-end ">
                           <div className="flex">
                               <span className={`bg-white text-black rounded-xl flex gap-2 ${error ? "px-4 py-2" : ""}`}>
-                                  {error && <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-ban-icon lucide-ban"><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></svg>}
+                                  {error && <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-ban-icon lucide-ban"><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></svg>}
                                   {`${error ? "Error while genrating the manim code" : ""}`}
                               </span>
                           </div> 
@@ -175,7 +155,7 @@ export default function DashBoard() {
 
                       <div className={`text-center fixed bottom-0 flex justify-center items-end  w-full`}>
                           <textarea name="message" rows="5" cols="100" className="rounded-3xl bg-neutral-700 outline-none border-none pl-4 pt-2 text-md mb-4" placeholder="Ask Anything here" onKeyDown={handleKeyDown} onChange={(e) => setPrompt(e.target.value)} value={prompt}>
-                                        
+                                    
                           </textarea>
                           
                       </div>

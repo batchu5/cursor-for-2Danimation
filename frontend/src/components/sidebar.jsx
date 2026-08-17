@@ -1,4 +1,4 @@
-import {Clapperboard, PanelRightClose, Plus, SquarePen} from "lucide-react"
+import {Clapperboard, LogOut, PanelRightClose, SquarePen} from "lucide-react"
 import { useEffect, useState } from "react"
 import { useRecoilValue, useSetRecoilState } from "recoil"
 import { newChat } from "../store/newchatAtom"
@@ -6,8 +6,7 @@ import { convoId } from "../store/conversationIdAtom"
 import { v4 as uuidv4 } from 'uuid';
 import { videosAtom } from "../store/videosAtom"
 import { conversationClick } from "../store/conversationClick"
-import { pictureAtom } from "../store/pictureAtom"
-import { userNameAtom } from "../store/usernameAtom"
+import { useAuth0 } from "@auth0/auth0-react"
 
 export default function Sidebar(){
     const [sidebar, setSidebar] = useState(true)
@@ -17,16 +16,11 @@ export default function Sidebar(){
     const video = useRecoilValue(videosAtom);
     const convoClick = useRecoilValue(conversationClick);
     const setConvoClick = useSetRecoilState(conversationClick);
-    const userName = useRecoilValue(userNameAtom);
-    const picture = useRecoilValue(pictureAtom);
-    const setPicture = useSetRecoilState(pictureAtom)
-
-    useEffect(() => {
-        if(picture === "hello guru kosame ra jeeveihtam"){
-          setPicture("https://t4.ftcdn.net/jpg/02/29/75/83/360_F_229758328_7x8jwCwjtBMmC6rgFzLFhZoEpLobB6L8.jpg")
-        }
-        
-      },[])
+    
+    // Get user info directly from Auth0
+    const { user, logout } = useAuth0();
+    const userName = user?.name || user?.nickname || user?.email || "";
+    const picture = user?.picture || "https://t4.ftcdn.net/jpg/02/29/75/83/360_F_229758328_7x8jwCwjtBMmC6rgFzLFhZoEpLobB6L8.jpg";
 
     return (
 
@@ -108,17 +102,26 @@ export default function Sidebar(){
       </div>
 
      
-      <div className="absolute bottom-2 left-2 right-2 bg-neutral-800 rounded-xl px-2 py-3 flex items-center gap-2">
-        <img
-          src={picture}
-          alt="User"
-          height="22"
-          width="22"
-          className="rounded-full"
-        />
-        <span className="overflow-hidden text-ellipsis whitespace-nowrap text-sm">
-          {userName}
-        </span>
+      <div className="absolute bottom-2 left-2 right-2 bg-neutral-800 rounded-xl px-2 py-3">
+        <div className="flex items-center gap-2">
+          <img
+            src={picture}
+            alt="User"
+            height="22"
+            width="22"
+            className="rounded-full"
+          />
+          <span className="overflow-hidden text-ellipsis whitespace-nowrap text-sm flex-1">
+            {userName}
+          </span>
+        </div>
+        <button 
+          onClick={() => logout({ logoutParams: { returnTo: window.location.origin } })}
+          className="mt-2 w-full flex items-center gap-2 text-sm text-neutral-400 hover:text-white hover:bg-neutral-700 rounded-lg px-2 py-1.5 transition-colors"
+        >
+          <LogOut size={14} />
+          <span>Sign out</span>
+        </button>
       </div>
     </div>
   </>
