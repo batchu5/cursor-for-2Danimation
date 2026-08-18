@@ -1,6 +1,11 @@
 from pymongo import MongoClient #type: ignore
+import os
+from dotenv import load_dotenv #type: ignore
 
-client = MongoClient("mongodb+srv://admin:M8Ka9GxEjWaNb9kl@cluster0.lphgo.mongodb.net/")
+load_dotenv()
+
+client = MongoClient(os.getenv("MONGODB_URI"))
 
 db = client["mydatabase"]
 user_collection = db["users"]
+
