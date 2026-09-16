@@ -95,6 +95,7 @@ client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 app = FastAPI()
 origins = [
      "https://cursor-for-2-danimation.vercel.app",
+     "https://cursor-for-2d-anim-vid.vercel.app"
      "http://localhost:5173"
 ]
 app.include_router(userRouter)
