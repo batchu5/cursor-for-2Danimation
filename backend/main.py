@@ -12,7 +12,7 @@ from datetime import datetime
 
 from fastapi import FastAPI, HTTPException, Depends # type: ignore
 from fastapi.middleware.cors import CORSMiddleware
-from openai import OpenAI # type: ignore
+from google import genai  # type: ignore
 from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field, validator
 
@@ -90,10 +90,7 @@ class PromptRequest(BaseModel):
         return v
 
 load_dotenv()
-client = OpenAI(
-    api_key=os.getenv("OPENROUTER_API_KEY"),
-    base_url="https://openrouter.ai/api/v1"
-)
+client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
 app = FastAPI()
 origins = [
@@ -123,48 +120,75 @@ SYSTEM_PROMPT = (
     "5. Add the import statement for manim at the top."
 )
 
-# --- Free models to try, in order of preference ---
-FREE_MODELS = [
-    "google/gemma-4-31b-it:free",
-    "nvidia/nemotron-3-super-120b-a12b:free",
-    "openai/gpt-oss-20b:free",
+# --- Gemini free-tier models to try, in order of preference ---
+GEMINI_MODELS = [
+    "gemini-3.8-flash",
+    "gemini-3.7-flash",
+    "gemini-2.5-flash",
 ]
 
-MAX_RETRIES_PER_MODEL = 2
-RETRY_DELAY_SECONDS = 3
+MAX_RETRIES_PER_MODEL = 3
+INITIAL_RETRY_DELAY = 3  # seconds, doubles each retry (exponential backoff)
 
 
-def call_llm_with_fallback(client, messages):
+def _is_retryable_error(error_str: str) -> bool:
+    """Check if an error is a rate-limit or transient error worth retrying."""
+    retryable_keywords = [
+        "429", "rate", "quota", "resource_exhausted", "resourceexhausted",
+        "503", "overloaded", "unavailable", "connection", "timeout",
+        "too many requests", "retry",
+    ]
+    error_lower = error_str.lower()
+    return any(keyword in error_lower for keyword in retryable_keywords)
+
+
+def call_llm_with_fallback(client, user_prompt):
     """
-    Try each free model in order. Retry each model up to MAX_RETRIES_PER_MODEL
-    times on rate-limit (429) errors before falling through to the next model.
+    Try each Gemini model in order. Retry each model up to MAX_RETRIES_PER_MODEL
+    times with exponential backoff on rate-limit/transient errors before
+    falling through to the next model.
     """
     last_error = None
-    for model_id in FREE_MODELS:
+    for model_idx, model_id in enumerate(GEMINI_MODELS):
         for attempt in range(1, MAX_RETRIES_PER_MODEL + 1):
             try:
                 print(f"  Trying {model_id} (attempt {attempt}/{MAX_RETRIES_PER_MODEL})...")
-                response = client.chat.completions.create(
+                chat = client.chats.create(
                     model=model_id,
-                    messages=messages,
+                    config=genai.types.GenerateContentConfig(
+                        system_instruction=SYSTEM_PROMPT,
+                    ),
                 )
+                response = chat.send_message(user_prompt)
                 print(f"  ✅ Success with {model_id}")
                 return response
             except Exception as e:
                 last_error = e
                 error_str = str(e)
-                # Rate limit or temporary error — retry or try next model
-                if "429" in error_str or "rate" in error_str.lower() or "connection" in error_str.lower():
-                    print(f"  ⚠️ {model_id} attempt {attempt} failed: {error_str[:100]}")
+
+                if _is_retryable_error(error_str):
+                    # Exponential backoff with jitter: 3s, 6s, 12s...
+                    import random
+                    delay = INITIAL_RETRY_DELAY * (2 ** (attempt - 1)) + random.uniform(0, 1)
+                    print(f"  ⚠️ {model_id} attempt {attempt} rate-limited: {error_str[:120]}")
+
                     if attempt < MAX_RETRIES_PER_MODEL:
-                        time.sleep(RETRY_DELAY_SECONDS)
-                    continue
+                        print(f"  ⏳ Waiting {delay:.1f}s before retry...")
+                        time.sleep(delay)
+                        continue
+                    else:
+                        # Exhausted retries for this model — cooldown before next model
+                        if model_idx < len(GEMINI_MODELS) - 1:
+                            cooldown = 5
+                            print(f"  ⏳ Model {model_id} exhausted. Cooling down {cooldown}s before next model...")
+                            time.sleep(cooldown)
+                        break
                 else:
-                    # Non-retryable error — skip to next model
-                    print(f"  ❌ {model_id} non-retryable error: {error_str[:100]}")
+                    # Non-retryable error — skip to next model immediately
+                    print(f"  ❌ {model_id} non-retryable error: {error_str[:120]}")
                     break
 
-    raise Exception(f"All free models exhausted. Last error: {last_error}")
+    raise Exception(f"All Gemini models exhausted. Last error: {last_error}")
 
    
 @app.post("/generate_video")
@@ -177,16 +201,13 @@ async def generate_video(promptRequest: PromptRequest, user_id: str = Depends(ge
     try:
         response = call_llm_with_fallback(
             client,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": f"Create a Manim animation to explain: {promptRequest.prompt}"}
-            ]
+            user_prompt=f"Create a Manim animation to explain: {promptRequest.prompt}"
         )
 
         if response is None:
             return {"error": "No response from LLM"}
 
-        code = response.choices[0].message.content
+        code = response.text
         cleaned_code = code.replace("```python", "").replace("```", "").strip()
 
         # --- SECURITY: Validate the generated code before writing/executing ---
@@ -280,7 +301,7 @@ async def generate_video(promptRequest: PromptRequest, user_id: str = Depends(ge
         return {"error": "Rendering timed out."}
     except Exception as e:
         error_msg = str(e)
-        if "All free models exhausted" in error_msg:
+        if "All Gemini models exhausted" in error_msg:
             return {"error": "All AI models are temporarily rate-limited. Please try again in a minute."}
         return {"error": f"Unexpected error: {error_msg[:200]}"}
     finally:

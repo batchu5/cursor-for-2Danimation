@@ -8,7 +8,7 @@ fastapi
 uvicorn[standard]
 
 # AI Integration
-openai
+google-genai
 requests
 python-dotenv
 
