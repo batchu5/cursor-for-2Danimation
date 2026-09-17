@@ -237,10 +237,14 @@ async def generate_video(promptRequest: PromptRequest, user_id: str = Depends(ge
                     send_status(f"Render attempt {render_attempt}/{MAX_RENDER_RETRIES} — Regenerating code...")
 
                 # --- Step 1: Generate code from LLM ---
+                user_prompt = f"Create a Manim animation to explain: {promptRequest.prompt}"
+                if render_attempt > 1 and last_render_error:
+                    user_prompt += f"\n\nIMPORTANT: The previous attempt failed to render with the following error:\n{last_render_error}\nPlease fix any syntax or rendering errors in the Python Manim code."
+
                 try:
                     response = call_llm_with_fallback(
                         client,
-                        user_prompt=f"Create a Manim animation to explain: {promptRequest.prompt}",
+                        user_prompt=user_prompt,
                         status_callback=send_status
                     )
                 except Exception as llm_err:
@@ -263,7 +267,10 @@ async def generate_video(promptRequest: PromptRequest, user_id: str = Depends(ge
                         send_status(f"Generated code had safety issues. Retrying ({render_attempt}/{MAX_RENDER_RETRIES})...")
                         continue
                     else:
-                        event_queue.put({"type": "error", "message": last_render_error})
+                        event_queue.put({
+                            "type": "error",
+                            "message": "Generated code had syntax/validation errors after 3 attempts. Please try again after some time."
+                        })
                         return
 
                 # --- Step 3: Write code & render with Manim ---
@@ -308,27 +315,28 @@ async def generate_video(promptRequest: PromptRequest, user_id: str = Depends(ge
                         render_success = True
                     except subprocess.CalledProcessError as e:
                         log(f"[{request_id}] Render failed (attempt {render_attempt}). Return code: {e.returncode}")
-                        # Read the render log for debugging
+                        render_log_snippet = ""
                         try:
                             with open(log_file, "r") as lf:
                                 render_log = lf.read()
-                            log(f"[{request_id}] Render log:\n{render_log[-500:]}")
+                            render_log_snippet = render_log[-500:]
+                            log(f"[{request_id}] Render log:\n{render_log_snippet}")
                         except Exception:
                             pass
-                        last_render_error = "Manim rendering failed. The generated code may have syntax errors."
+                        last_render_error = render_log_snippet if render_log_snippet else "Manim rendering failed due to code syntax error."
 
                 if render_success:
                     log(f"[{request_id}] ✅ Render succeeded on attempt {render_attempt}")
                     break
                 else:
                     if render_attempt < MAX_RENDER_RETRIES:
-                        send_status(f"Manim code had errors. Regenerating code (attempt {render_attempt + 1}/{MAX_RENDER_RETRIES})...")
+                        send_status(f"Manim code had syntax/render errors. Regenerating code (attempt {render_attempt + 1}/{MAX_RENDER_RETRIES})...")
                         continue
                     else:
-                        send_status("All render attempts failed.")
+                        send_status("All 3 render attempts failed.")
                         event_queue.put({
                             "type": "error",
-                            "message": "Video generation failed after multiple attempts. Please try again later or simplify your prompt."
+                            "message": "Generated code had syntax errors after 3 attempts. Please try again after some time."
                         })
                         return
 
