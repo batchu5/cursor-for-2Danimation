@@ -206,7 +206,7 @@ async def generate_video(promptRequest: PromptRequest, user_id: str = Depends(ge
         )
 
         if response is None:
-            return {"error": "No response from LLM"}
+            raise HTTPException(status_code=503, detail="No response from LLM")
 
         code = response.text
         cleaned_code = code.replace("```python", "").replace("```", "").strip()
@@ -215,7 +215,7 @@ async def generate_video(promptRequest: PromptRequest, user_id: str = Depends(ge
         is_safe, reason = validate_generated_code(cleaned_code)
         if not is_safe:
             print(f"⚠️ Code validation failed: {reason}")
-            return {"error": f"Generated code failed safety check: {reason}"}
+            raise HTTPException(status_code=400, detail=f"Generated code failed safety check: {reason}")
 
         # Write to a unique file in the temp directory (no race condition)
         scene_file = os.path.join(work_dir, "scene.py")
@@ -251,10 +251,10 @@ async def generate_video(promptRequest: PromptRequest, user_id: str = Depends(ge
                 )
             except KeyboardInterrupt:
                 print("Rendering interrupted by user.")
-                return {"return code": 130, "output": "User interrupted the process"}
+                raise HTTPException(status_code=499, detail="User interrupted the process")
             except subprocess.CalledProcessError as e:
                 print(f"[{request_id}] Render failed. Return code:", e.returncode)
-                return {"error": "Manim rendering failed. The generated code may have syntax errors."}
+                raise HTTPException(status_code=500, detail="Manim rendering failed. The generated code may have syntax errors.")
 
         with open(log_file, "r") as lf:
             log_contents = lf.read()
@@ -280,7 +280,7 @@ async def generate_video(promptRequest: PromptRequest, user_id: str = Depends(ge
                         break
             
             if not os.path.exists(video_path):
-                return {"error": "Video file not found after rendering"}
+                raise HTTPException(status_code=500, detail="Video file not found after rendering")
         
         url = upload_video(video_path)
 
@@ -298,13 +298,15 @@ async def generate_video(promptRequest: PromptRequest, user_id: str = Depends(ge
         if update_result.modified_count != 1:
             raise HTTPException(status_code=500, detail="Video added failed.")
 
+    except HTTPException:
+        raise
     except subprocess.TimeoutExpired:
-        return {"error": "Rendering timed out."}
+        raise HTTPException(status_code=504, detail="Rendering timed out.")
     except Exception as e:
         error_msg = str(e)
         if "All Gemini models exhausted" in error_msg:
-            return {"error": "All AI models are temporarily rate-limited. Please try again in a minute."}
-        return {"error": f"Unexpected error: {error_msg[:200]}"}
+            raise HTTPException(status_code=429, detail="All AI models are temporarily rate-limited. Please try again in a minute.")
+        raise HTTPException(status_code=500, detail=f"Unexpected error: {error_msg[:200]}")
     finally:
         # Clean up temp directory after request completes
         try:
@@ -313,7 +315,7 @@ async def generate_video(promptRequest: PromptRequest, user_id: str = Depends(ge
             pass
 
     if result.returncode != 0:
-        return {"error": result.stderr}
+        raise HTTPException(status_code=500, detail=result.stderr or "Rendering failed")
     
     return {"message": "✅ Video generated", "data": {"url": url}}
 

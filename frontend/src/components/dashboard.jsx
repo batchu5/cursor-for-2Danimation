@@ -9,6 +9,7 @@ import { videosAtom } from "../store/videosAtom";
 import { conversationClick } from "../store/conversationClick";
 import { errorAtom } from "../store/errorAtom";
 import { useAuth0 } from "@auth0/auth0-react";
+import { toast } from "react-toastify";
 
 export default function DashBoard() {
   const { user, getAccessTokenSilently } = useAuth0();
@@ -47,8 +48,10 @@ export default function DashBoard() {
 
   
   const handleOnClick = async () => {
+    if (!prompt.trim()) return;
     try {
       setLoading(true);
+      setError(false);
       let selectedconversationId = "";
       const keys = Object.keys(convoClick).reverse();
 
@@ -67,18 +70,21 @@ export default function DashBoard() {
 
       if (resData.error) {
         console.error("Backend Error:", resData.error);
+        toast.error(resData.error);
         setError(true);
       } else if (resData.data?.url) {
         const newUrl = resData.data.url;
         setCurrentVideo((prev) => [...prev, { prompt, url: newUrl, selectedconversationId }]);
-        
+        setPrompt("");
       } else {
         console.warn("Unexpected backend response:", resData);
+        toast.error("Unexpected response from server.");
         setError(true);
       }
-      setPrompt("");
     } catch (err) {
       console.error("Unexpected Error:", err);
+      const errorMsg = err.response?.data?.detail || err.response?.data?.error || err.message || "Error generating video";
+      toast.error(errorMsg);
       setError(true);
     } finally {
       setLoading(false);
