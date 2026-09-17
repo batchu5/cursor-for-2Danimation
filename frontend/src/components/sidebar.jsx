@@ -70,13 +70,16 @@ export default function Sidebar(){
         
 
         {/* Conversation List */}
-        {video
-          .slice()
-          .reverse()
-          .map((vid, index) => (
+        {video.map((vid, index) => {
+          const firstPrompt =
+            Array.isArray(vid) && vid.length > 0 && vid[0]?.prompt
+              ? vid[0].prompt
+              : `Conversation ${index + 1}`;
+
+          return (
             <div
               key={index}
-              className="cursor-pointer   py-1 hover:bg-neutral-800 rounded-xl"
+              className="cursor-pointer py-1 hover:bg-neutral-800 rounded-xl"
               onClick={() => {
                 setConvoClick(() => {
                   const newState = {};
@@ -89,16 +92,18 @@ export default function Sidebar(){
               }}
             >
               <div
-                className={` py-2 px-4 text-sm ${
+                className={`py-2 px-4 text-sm truncate ${
                   convoClick[index]
-                    ? "bg-neutral-800 w-full rounded-xl "
-                    : ""
+                    ? "bg-neutral-800 w-full rounded-xl font-medium text-white"
+                    : "text-neutral-300"
                 }`}
+                title={firstPrompt}
               >
-                Conversation {index + 1}
+                {firstPrompt}
               </div>
             </div>
-          ))}
+          );
+        })}
       </div>
 
      
