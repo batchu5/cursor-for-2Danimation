@@ -8,10 +8,15 @@ import glob
 import tempfile
 import uuid
 import time
+import queue
+import threading
+import asyncio
+import json
 from datetime import datetime
 
 from fastapi import FastAPI, HTTPException, Depends # type: ignore
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from google import genai  # type: ignore
 from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field, validator
@@ -143,7 +148,7 @@ def _is_retryable_error(error_str: str) -> bool:
     return any(keyword in error_lower for keyword in retryable_keywords)
 
 
-def call_llm_with_fallback(client, user_prompt):
+def call_llm_with_fallback(client, user_prompt, status_callback=None):
     """
     Try each Gemini model in order. Retry each model up to MAX_RETRIES_PER_MODEL
     times with exponential backoff on rate-limit/transient errors before
@@ -153,7 +158,11 @@ def call_llm_with_fallback(client, user_prompt):
     for model_idx, model_id in enumerate(GEMINI_MODELS):
         for attempt in range(1, MAX_RETRIES_PER_MODEL + 1):
             try:
-                print(f"  Trying {model_id} (attempt {attempt}/{MAX_RETRIES_PER_MODEL})...")
+                msg = f"Generating code with {model_id} (attempt {attempt}/{MAX_RETRIES_PER_MODEL})..."
+                print(f"  {msg}")
+                if status_callback:
+                    status_callback(msg)
+
                 chat = client.chats.create(
                     model=model_id,
                     config=genai.types.GenerateContentConfig(
@@ -174,150 +183,169 @@ def call_llm_with_fallback(client, user_prompt):
                     print(f"  ⚠️ {model_id} attempt {attempt} rate-limited: {error_str[:120]}")
 
                     if attempt < MAX_RETRIES_PER_MODEL:
-                        print(f"  ⏳ Waiting {delay:.1f}s before retry...")
+                        retry_msg = f"Model {model_id} rate-limited. Retrying in {delay:.1f}s..."
+                        print(f"  ⏳ {retry_msg}")
+                        if status_callback:
+                            status_callback(retry_msg)
                         time.sleep(delay)
                         continue
                     else:
                         # Exhausted retries for this model — cooldown before next model
                         if model_idx < len(GEMINI_MODELS) - 1:
-                            cooldown = 5
-                            print(f"  ⏳ Model {model_id} exhausted. Cooling down {cooldown}s before next model...")
-                            time.sleep(cooldown)
+                            next_model = GEMINI_MODELS[model_idx + 1]
+                            fallback_msg = f"Model {model_id} rate limit reached. Trying fallback model {next_model}..."
+                            print(f"  ⏳ {fallback_msg}")
+                            if status_callback:
+                                status_callback(fallback_msg)
+                            time.sleep(3)
                         break
                 else:
                     # Non-retryable error — skip to next model immediately
                     print(f"  ❌ {model_id} non-retryable error: {error_str[:120]}")
                     break
 
-    raise Exception(f"All Gemini models exhausted. Last error: {last_error}")
+    raise Exception(f"All AI models are temporarily rate-limited. Please try again in a minute. Last error: {last_error}")
 
-   
+
 @app.post("/generate_video")
 async def generate_video(promptRequest: PromptRequest, user_id: str = Depends(get_current_user_id)):
-    # Create a unique temp directory for this request to prevent race conditions
-    request_id = str(uuid.uuid4())[:8]
-    work_dir = os.path.join(os.getcwd(), "tmp_renders", request_id)
-    os.makedirs(work_dir, exist_ok=True)
+    event_queue = queue.Queue()
 
-    try:
-        response = call_llm_with_fallback(
-            client,
-            user_prompt=f"Create a Manim animation to explain: {promptRequest.prompt}"
-        )
+    def send_status(msg: str):
+        event_queue.put({"type": "status", "message": msg})
 
-        if response is None:
-            raise HTTPException(status_code=503, detail="No response from LLM")
+    def worker():
+        request_id = str(uuid.uuid4())[:8]
+        work_dir = os.path.join(os.getcwd(), "tmp_renders", request_id)
+        os.makedirs(work_dir, exist_ok=True)
 
-        code = response.text
-        cleaned_code = code.replace("```python", "").replace("```", "").strip()
-
-        # --- SECURITY: Validate the generated code before writing/executing ---
-        is_safe, reason = validate_generated_code(cleaned_code)
-        if not is_safe:
-            print(f"⚠️ Code validation failed: {reason}")
-            raise HTTPException(status_code=400, detail=f"Generated code failed safety check: {reason}")
-
-        # Write to a unique file in the temp directory (no race condition)
-        scene_file = os.path.join(work_dir, "scene.py")
-        with open(scene_file, "w", encoding="utf-8") as f:
-            f.write(cleaned_code)
-
-        match = re.search(r"class\s+(\w+)\s*\(\s*Scene\s*\):", cleaned_code)
-        class_name = match.group(1) if match else "GeneratedScene"
-
-        print(f"[{request_id}] About to start video generating for class: {class_name}")
-        
-        env = os.environ.copy()
-        log_file = os.path.join(work_dir, "render.log")
-
-        with open(log_file, "w") as f:
-            try:
-                result = subprocess.run(
-                    [
-                        "manim",
-                        scene_file,
-                        class_name,
-                        "-ql",
-                        "--output_file", f"{class_name}.mp4",
-                        "--media_dir", os.path.join(work_dir, "media"),
-                    ],
-                    cwd=work_dir,
-                    env=env,
-                    stdout=f,
-                    stderr=subprocess.STDOUT,
-                    check=True,
-                    start_new_session=True,
-                    timeout=500
-                )
-            except KeyboardInterrupt:
-                print("Rendering interrupted by user.")
-                raise HTTPException(status_code=499, detail="User interrupted the process")
-            except subprocess.CalledProcessError as e:
-                print(f"[{request_id}] Render failed. Return code:", e.returncode)
-                raise HTTPException(status_code=500, detail="Manim rendering failed. The generated code may have syntax errors.")
-
-        with open(log_file, "r") as lf:
-            log_contents = lf.read()
-            print(f"[{request_id}] === Render Log ===")
-            print(log_contents)
-
-        print(f"[{request_id}] Completed rendering")
-
-        output_dir = os.path.join(work_dir, "media", "videos", "scene", "480p15")
-        filename = f"{class_name}.mp4"
-        video_path = os.path.join(output_dir, filename)
-
-        print(f"[{request_id}] Looking for video: {video_path}")
-        print(f"[{request_id}] Exists? {os.path.exists(video_path)}")
-
-        if not os.path.exists(video_path):
-            # Try to find the video in the media directory
-            for root, dirs, files in os.walk(os.path.join(work_dir, "media")):
-                print(f"{root}: {files}")
-                for file in files:
-                    if file.endswith(".mp4"):
-                        video_path = os.path.join(root, file)
-                        break
-            
-            if not os.path.exists(video_path):
-                raise HTTPException(status_code=500, detail="Video file not found after rendering")
-        
-        url = upload_video(video_path)
-
-        video_data = {
-            "prompt": promptRequest.prompt,
-            "url": url,
-            "conversationId": promptRequest.conversationId,
-            "timestamp": promptRequest.timestamp,
-        }
-        update_result = user_collection.update_one(
-            {"auth0_id": user_id},
-            {"$push": {"videos": video_data}}
-        )
-
-        if update_result.modified_count != 1:
-            raise HTTPException(status_code=500, detail="Video added failed.")
-
-    except HTTPException:
-        raise
-    except subprocess.TimeoutExpired:
-        raise HTTPException(status_code=504, detail="Rendering timed out.")
-    except Exception as e:
-        error_msg = str(e)
-        if "All Gemini models exhausted" in error_msg:
-            raise HTTPException(status_code=429, detail="All AI models are temporarily rate-limited. Please try again in a minute.")
-        raise HTTPException(status_code=500, detail=f"Unexpected error: {error_msg[:200]}")
-    finally:
-        # Clean up temp directory after request completes
         try:
-            shutil.rmtree(work_dir, ignore_errors=True)
-        except Exception:
-            pass
+            send_status("Initializing video generation...")
+            response = call_llm_with_fallback(
+                client,
+                user_prompt=f"Create a Manim animation to explain: {promptRequest.prompt}",
+                status_callback=send_status
+            )
 
-    if result.returncode != 0:
-        raise HTTPException(status_code=500, detail=result.stderr or "Rendering failed")
-    
-    return {"message": "✅ Video generated", "data": {"url": url}}
+            if response is None:
+                event_queue.put({"type": "error", "message": "No response from LLM"})
+                return
+
+            code = response.text
+            cleaned_code = code.replace("```python", "").replace("```", "").strip()
+
+            is_safe, reason = validate_generated_code(cleaned_code)
+            if not is_safe:
+                print(f"⚠️ Code validation failed: {reason}")
+                event_queue.put({"type": "error", "message": f"Generated code failed safety check: {reason}"})
+                return
+
+            send_status("Code generated! Rendering animation...")
+            scene_file = os.path.join(work_dir, "scene.py")
+            with open(scene_file, "w", encoding="utf-8") as f:
+                f.write(cleaned_code)
+
+            match = re.search(r"class\s+(\w+)\s*\(\s*Scene\s*\):", cleaned_code)
+            class_name = match.group(1) if match else "GeneratedScene"
+
+            print(f"[{request_id}] About to start video generating for class: {class_name}")
+            
+            env = os.environ.copy()
+            log_file = os.path.join(work_dir, "render.log")
+
+            with open(log_file, "w") as f:
+                try:
+                    result = subprocess.run(
+                        [
+                            "manim",
+                            scene_file,
+                            class_name,
+                            "-ql",
+                            "--output_file", f"{class_name}.mp4",
+                            "--media_dir", os.path.join(work_dir, "media"),
+                        ],
+                        cwd=work_dir,
+                        env=env,
+                        stdout=f,
+                        stderr=subprocess.STDOUT,
+                        check=True,
+                        start_new_session=True,
+                        timeout=500
+                    )
+                except KeyboardInterrupt:
+                    print("Rendering interrupted by user.")
+                    event_queue.put({"type": "error", "message": "User interrupted the process"})
+                    return
+                except subprocess.CalledProcessError as e:
+                    print(f"[{request_id}] Render failed. Return code:", e.returncode)
+                    event_queue.put({"type": "error", "message": "Manim rendering failed. The generated code may have syntax errors."})
+                    return
+
+            send_status("Rendering completed! Uploading video...")
+            output_dir = os.path.join(work_dir, "media", "videos", "scene", "480p15")
+            filename = f"{class_name}.mp4"
+            video_path = os.path.join(output_dir, filename)
+
+            if not os.path.exists(video_path):
+                for root, dirs, files in os.walk(os.path.join(work_dir, "media")):
+                    for file in files:
+                        if file.endswith(".mp4"):
+                            video_path = os.path.join(root, file)
+                            break
+                
+                if not os.path.exists(video_path):
+                    event_queue.put({"type": "error", "message": "Video file not found after rendering"})
+                    return
+            
+            url = upload_video(video_path)
+
+            video_data = {
+                "prompt": promptRequest.prompt,
+                "url": url,
+                "conversationId": promptRequest.conversationId,
+                "timestamp": promptRequest.timestamp,
+            }
+            update_result = user_collection.update_one(
+                {"auth0_id": user_id},
+                {"$push": {"videos": video_data}}
+            )
+
+            if update_result.modified_count != 1:
+                event_queue.put({"type": "error", "message": "Video added to DB failed."})
+                return
+
+            event_queue.put({"type": "success", "message": "✅ Video generated successfully", "data": {"url": url}})
+
+        except subprocess.TimeoutExpired:
+            event_queue.put({"type": "error", "message": "Rendering timed out."})
+        except Exception as e:
+            error_msg = str(e)
+            if "All AI models are temporarily rate-limited" in error_msg or "rate-limited" in error_msg.lower():
+                event_queue.put({"type": "error", "message": "All AI models are temporarily rate-limited. Please try again in a minute."})
+            else:
+                event_queue.put({"type": "error", "message": f"Unexpected error: {error_msg[:200]}"})
+        finally:
+            try:
+                shutil.rmtree(work_dir, ignore_errors=True)
+            except Exception:
+                pass
+            event_queue.put(None)  # Sentinel to end stream
+
+    threading.Thread(target=worker, daemon=True).start()
+
+    async def event_generator():
+        while True:
+            try:
+                item = event_queue.get_nowait()
+            except queue.Empty:
+                await asyncio.sleep(0.1)
+                continue
+
+            if item is None:
+                break
+            yield f"data: {json.dumps(item)}\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
 if __name__ == "__main__":

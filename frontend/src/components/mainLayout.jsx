@@ -5,9 +5,11 @@ import { useEffect, useState } from "react";
 import VideoPlayer from "../videoplayer";
 import { videosAtom } from "../store/videosAtom";
 import { conversationClick } from "../store/conversationClick";
-import { toast } from "react-toastify";
+import { useAuth0 } from "@auth0/auth0-react";
+import { generateVideoWithStream } from "../utils/streamHelper";
 
 export default function Chat(){
+    const { getAccessTokenSilently } = useAuth0();
     const conversationId = useRecoilValue(convoId);
     const [prompt, setPrompt] = useState("");
     // const [video, setVideos] = useState([]);
@@ -32,29 +34,17 @@ export default function Chat(){
     
     const handleOnClick = async () => {
         if (!prompt.trim()) return;
-        try {
-            setLoading(true);
-            const generateRes = await api.post(
-                `/generate_video`,
-                { prompt, conversationId}
-            );
-
-            if (generateRes.data?.error) {
-                toast.error(generateRes.data.error);
-            } else if (generateRes.data?.data?.url) {
-                const newUrl = generateRes.data.data.url;
+        setLoading(true);
+        await generateVideoWithStream({
+            prompt,
+            conversationId,
+            getToken: getAccessTokenSilently,
+            onSuccess: (newUrl) => {
                 setCurrentVideo((prev) => [...prev, { prompt, url: newUrl, conversationId }]);
-                setPrompt(""); 
-            } else {
-                toast.error("Unexpected response format from server.");
+                setPrompt("");
             }
-        } catch (err) {
-            console.error("Error generating or adding video:", err);
-            const errorMsg = err.response?.data?.detail || err.response?.data?.error || err.message || "An error occurred while generating video";
-            toast.error(errorMsg);
-        } finally {
-            setLoading(false);
-        }
+        });
+        setLoading(false);
     };
    const handleKeyDown = (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
