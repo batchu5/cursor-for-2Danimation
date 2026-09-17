@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import VideoPlayer from "../videoplayer";
 import { videosAtom } from "../store/videosAtom";
 import { conversationClick } from "../store/conversationClick";
+import { toast } from "react-toastify";
 
 export default function Chat(){
     const conversationId = useRecoilValue(convoId);
@@ -30,21 +31,31 @@ export default function Chat(){
     }, [video])
     
     const handleOnClick = async () => {
+        if (!prompt.trim()) return;
         try {
-            setLoading(true)
+            setLoading(true);
             const generateRes = await api.post(
                 `/generate_video`,
                 { prompt, conversationId}
             );
-            setLoading(false)
-            const newUrl = generateRes.data.data.url;
-            setCurrentVideo((prev) => [...prev, { prompt, url: newUrl, conversationId }]);
-            // console.log(video)
-            setPrompt(""); 
+
+            if (generateRes.data?.error) {
+                toast.error(generateRes.data.error);
+            } else if (generateRes.data?.data?.url) {
+                const newUrl = generateRes.data.data.url;
+                setCurrentVideo((prev) => [...prev, { prompt, url: newUrl, conversationId }]);
+                setPrompt(""); 
+            } else {
+                toast.error("Unexpected response format from server.");
+            }
         } catch (err) {
             console.error("Error generating or adding video:", err);
+            const errorMsg = err.response?.data?.detail || err.response?.data?.error || err.message || "An error occurred while generating video";
+            toast.error(errorMsg);
+        } finally {
+            setLoading(false);
         }
-  };
+    };
    const handleKeyDown = (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault(); 

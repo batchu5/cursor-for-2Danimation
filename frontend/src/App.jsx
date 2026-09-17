@@ -5,6 +5,8 @@ import DashBoard from './components/dashboard'
 import LandingPage from './components/LandingPage';
 import CallbackPage from './components/CallbackPage';
 import { useAuth0 } from '@auth0/auth0-react';
+import { ToastContainer } from 'react-toastify';
+import 'react-toastify/dist/ReactToastify.css';
 
 function ProtectedRoute({ children }) {
   const { isAuthenticated, isLoading, loginWithRedirect } = useAuth0();
@@ -39,6 +41,7 @@ function ProtectedRoute({ children }) {
 function App() {
   return (
     <Router>
+      <ToastContainer position="top-right" autoClose={5000} hideProgressBar={false} newestOnTop closeOnClick pauseOnHover theme="dark" />
       <Routes>
         <Route path='/' element={<LandingPage />} />
         <Route path='/callback' element={<CallbackPage />} />

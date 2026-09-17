@@ -108,7 +108,7 @@ def add_video(req: Video, user_id: str = Depends(get_current_user_id)):
     )
     if result.modified_count == 1:
         return {"message": "Video added successfully", "conversationId": conversation_id}
-    return {"error": "User not found or update failed"}
+    raise HTTPException(status_code=400, detail="User not found or update failed")
 
 
 @userRouter.get("/myVideos")
